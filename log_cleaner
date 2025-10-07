@@ -1,0 +1,71 @@
+#!/bin/bash
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <log_directory> <threshold_percentage>" 
+    exit 1
+fi
+
+LOG_DIR=$1
+THRESHOLD=$2
+BACKUP_DIR="$HOME/backup"
+
+if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]]; then
+    echo "Error: Threshold must be a number between 0 and 100" 
+    exit 1
+fi
+
+if [ "$THRESHOLD" -lt 0 ] || [ "$THRESHOLD" -gt 100 ]; then 
+    echo "Error: Threshold must be between 0 and 100" 
+    exit 1
+fi
+
+if [ ! -d "$LOG_DIR" ]; then
+    echo "Error: Directory $LOG_DIR does not exist" 
+    exit 2
+fi
+
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "Directory $BACKUP_DIR not found, creating..." 
+    mkdir -p "$BACKUP_DIR"
+fi
+
+USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+
+echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
+
+if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
+    echo "Threshold $THRESHOLD% exceeded. Starting archive..."
+
+    M=50
+    
+    FILES=()
+    while IFS= read -r -d '' file; do
+        FILES+=("$file")
+    done < <(find "$LOG_DIR" -type f -printf "%T@ %p\0" | sort -zn | head -zn $M | cut -zd' ' -f2-)
+    
+    if [ ${#FILES[@]} -eq 0 ]; then
+        echo "No files to archive."
+        exit 0
+    fi
+
+    ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+    echo "Archiving ${#FILES[@]} oldest files to $ARCHIVE_NAME"
+    
+    (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${FILES[@]#$LOG_DIR/}")
+    
+    # tar -czf "$ARCHIVE_NAME" -C "$LOG_DIR" -- "${FILES[@]#$LOG_DIR/}"
+
+    if [ $? -eq 0 ]; then
+        echo "Archive completed successfully." 
+        for file in "${FILES[@]}"; do
+            rm -f "$file"
+        done
+        echo "Removed ${#FILES[@]} original files"
+    else    
+        echo "Archive error."
+        exit 3
+    fi
+else
+    echo "Threshold not exceeded. No action needed."
+fi
+
+exit 0
