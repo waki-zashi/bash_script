@@ -1,0 +1,72 @@
+#!/bin/bash
+
+set -e
+
+TEST_LOG_DIR="$HOME/test_log"
+BACKUP_DIR="$HOME/backup"
+
+prepare_logs() {
+    rm -rf "$TEST_LOG_DIR" "$BACKUP_DIR"
+    mkdir -p "$TEST_LOG_DIR" "$BACKUP_DIR"
+}
+
+prepare_logs
+for i in {1..5}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=10 &> /dev/null
+done
+echo "Test 1: Threshold 99% (no archiving) ==="
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 99
+echo "Backup consists of:"
+ls -lh "$BACKUP_DIR" || echo "Folder is empty"
+
+prepare_logs
+for i in {1..10}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=$((i*5)) &> /dev/null
+    sleep 1
+done
+echo "Test 2: Threshold 1% (archiving)"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+echo "Backup consists of:"
+ls -lh "$BACKUP_DIR"
+
+prepare_logs
+echo "Test 3: Log folder is empty (no archiving)"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+echo "Backup consists of:"
+ls -lh "$BACKUP_DIR" || echo "Folder is empty"
+
+prepare_logs
+rm -rf "$BACKUP_DIR"
+for i in {1..3}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=50 &> /dev/null
+done
+echo "Test 4: backup folder does not exist (creating)"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+echo "Backup: consists of:"
+ls -lh "$BACKUP_DIR"
+
+prepare_logs
+echo "Test 5: Check up entering arduments"
+
+if bash ./log_cleaner.sh "$TEST_LOG_DIR" "abc"; then
+    echo "You entered string instead of number"
+    exit 1
+else
+    echo "Crypt correctly rejected string instead of number"
+fi
+
+if bash ./log_cleaner.sh "$TEST_LOG_DIR" -5; then
+    echo "You entered negative number"
+    exit 1
+else
+    echo "Crypt correctly rejectes negative number"
+fi
+
+if bash ./log_cleaner.sh "$TEST_LOG_DIR" 150; then
+    echo "You entered number greater than 100"
+    exit 1
+else
+    echo "Crypt correctly rejected number greater than 100"
+fi
+
+echo "All tests completed"
