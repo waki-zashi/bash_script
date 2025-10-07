@@ -5,11 +5,13 @@ set -e
 TEST_LOG_DIR="$HOME/test_log"
 BACKUP_DIR="$HOME/backup"
 
+# Clean up test directories and create fresh ones
 prepare_logs() {
     rm -rf "$TEST_LOG_DIR" "$BACKUP_DIR"
     mkdir -p "$TEST_LOG_DIR" "$BACKUP_DIR"
 }
 
+# Test 1: Small files below threshold - should not archive
 prepare_logs
 for i in {1..5}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=10 &> /dev/null
@@ -19,6 +21,7 @@ bash ./log_cleaner.sh "$TEST_LOG_DIR" 99
 echo "Backup consists of:"
 ls -lh "$BACKUP_DIR" || echo "Folder is empty"
 
+# Test 2: Multiple small files - testing file sorting and selection
 prepare_logs
 for i in {1..10}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=$((i*5)) &> /dev/null
@@ -29,12 +32,14 @@ bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Backup consists of:"
 ls -lh "$BACKUP_DIR"
 
+# Test 3: Empty directory handling
 prepare_logs
 echo "Test 3: Log folder is empty (no archiving)"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Backup consists of:"
 ls -lh "$BACKUP_DIR" || echo "Folder is empty"
 
+# Test 4: Backup directory creation and basic archiving
 prepare_logs
 rm -rf "$BACKUP_DIR"
 for i in {1..3}; do
@@ -45,28 +50,81 @@ bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Backup: consists of:"
 ls -lh "$BACKUP_DIR"
 
+# Test 5: Verify that backup files are actually created
 prepare_logs
-echo "Test 5: Check up entering arduments"
+for i in {1..5}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/file_$i.log" bs=1M count=20 &> /dev/null
+done
+echo "Test 5: Verify backup file creation"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
+    echo "PASS: Backup file created successfully"
+    ls -lh "$BACKUP_DIR"/*.tar.gz
+else
+    echo "FAIL: No backup file found"
+fi
+
+# Test 6: Check archive contents and file count
+prepare_logs
+for i in {1..8}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/logfile_$i.log" bs=1M count=15 &> /dev/null
+    sleep 0.1
+done
+echo "Test 6: Verify archive content"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+archive_file=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
+if [ -n "$archive_file" ]; then
+    file_count=$(tar -tzf "$archive_file" 2>/dev/null | wc -l)
+    echo "PASS: Archive contains $file_count files"
+else
+    echo "FAIL: No archive to check"
+fi
+
+# Test 7: Low threshold test with small files
+prepare_logs
+for i in {1..3}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/small_$i.log" bs=1M count=2 &> /dev/null
+done
+echo "Test 7: Very low threshold (1%)"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+echo "Remaining files: $(find "$TEST_LOG_DIR" -type f | wc -l)"
+echo "Backup files: $(find "$BACKUP_DIR" -type f | wc -l)"
+
+# Test 8: Verify archiving order (oldest files first)
+prepare_logs
+dd if=/dev/zero of="$TEST_LOG_DIR/oldest.log" bs=1M count=10 &> /dev/null
+sleep 1
+dd if=/dev/zero of="$TEST_LOG_DIR/middle.log" bs=1M count=10 &> /dev/null  
+sleep 1
+dd if=/dev/zero of="$TEST_LOG_DIR/newest.log" bs=1M count=10 &> /dev/null
+echo "Test 8: Archive order (oldest first) ==="
+echo "Files before: $(ls -1t "$TEST_LOG_DIR")"
+bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
+echo "Files after: $(find "$TEST_LOG_DIR" -type f -printf '%f\n' 2>/dev/null || echo 'none')"
+
+# Test 9: Input validation and error handling
+prepare_logs
+echo "Test 9: Check up entering arguments"
 
 if bash ./log_cleaner.sh "$TEST_LOG_DIR" "abc"; then
     echo "You entered string instead of number"
     exit 1
 else
-    echo "Crypt correctly rejected string instead of number"
+    echo "Script correctly rejected string instead of number"
 fi
 
 if bash ./log_cleaner.sh "$TEST_LOG_DIR" -5; then
     echo "You entered negative number"
     exit 1
 else
-    echo "Crypt correctly rejectes negative number"
+    echo "Script correctly rejected negative number"
 fi
 
 if bash ./log_cleaner.sh "$TEST_LOG_DIR" 150; then
     echo "You entered number greater than 100"
     exit 1
 else
-    echo "Crypt correctly rejected number greater than 100"
+    echo "Script correctly rejected number greater than 100"
 fi
 
 echo "All tests completed"
