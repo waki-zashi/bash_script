@@ -7,6 +7,7 @@ fi
 LOG_DIR=$1
 THRESHOLD=$2
 BACKUP_DIR="$HOME/backup"
+N=70
 
 if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]]; then
     echo "Error: Threshold must be a number between 0 and 100" 
@@ -30,9 +31,12 @@ fi
 
 USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
 
-echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
+THRESHOLD_N=$((THRESHOLD * N / 100))
 
-if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
+echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
+echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD_N}%)"
+
+if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
     echo "Threshold $THRESHOLD% exceeded. Starting archive..."
 
     M=0
