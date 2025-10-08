@@ -35,34 +35,49 @@ echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
 if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
     echo "Threshold $THRESHOLD% exceeded. Starting archive..."
 
-    M=50
+    M=0
+    FILES_TO_ARCHIVE=()
     
-    FILES=()
     while IFS= read -r -d '' file; do
-        FILES+=("$file")
-    done < <(find "$LOG_DIR" -type f -printf "%T@ %p\0" | sort -zn | head -zn $M | cut -zd' ' -f2-)
+        FILES_TO_ARCHIVE+=("$file")
+    done < <(find "$LOG_DIR" -type f -printf "%T@ %p\0" | sort -zn | cut -zd' ' -f2-)
     
-    if [ ${#FILES[@]} -eq 0 ]; then
+    if [ ${#FILES_TO_ARCHIVE[@]} -eq 0 ]; then
         echo "No files to archive."
         exit 0
     fi
 
-    ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
-    echo "Archiving ${#FILES[@]} oldest files to $ARCHIVE_NAME"
+    ARCHIVED_FILES=()
+    CURRENT_USAGE=$USAGE_PERCENT
     
-    (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${FILES[@]#$LOG_DIR/}")
-    
-    # tar -czf "$ARCHIVE_NAME" -C "$LOG_DIR" -- "${FILES[@]#$LOG_DIR/}"
-
-    if [ $? -eq 0 ]; then
-        echo "Archive completed successfully." 
-        for file in "${FILES[@]}"; do
+    for file in "${FILES_TO_ARCHIVE[@]}"; do
+        CURRENT_USAGE=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+        
+        if [ $CURRENT_USAGE -le $THRESHOLD ]; then
+            break
+        fi
+        
+        ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S)_$M.tar.gz"
+        echo "Archiving: $file"
+        
+        (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${file#$LOG_DIR/}")
+        
+        if [ $? -eq 0 ]; then
+            ARCHIVED_FILES+=("$file")
             rm -f "$file"
-        done
-        echo "Removed ${#FILES[@]} original files"
-    else    
-        echo "Archive error."
-        exit 3
+            M=$((M + 1))
+            echo "Successfully archived $file"
+        else
+            echo "Failed to archive $file"
+            continue
+        fi
+    done
+
+    if [ ${#ARCHIVED_FILES[@]} -eq 0 ]; then
+        echo "No files were archived."
+    else
+        echo "Archive completed successfully. Archived $M files."
+        echo "Current disk usage: $CURRENT_USAGE%"
     fi
 else
     echo "Threshold not exceeded. No action needed."
