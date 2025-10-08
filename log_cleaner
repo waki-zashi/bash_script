@@ -1,21 +1,21 @@
 #!/bin/bash
 if [ $# -ne 2 ]; then
-    echo "Usage: $0 <log_directory> <threshold_percentage>" 
+    echo "Usage: $0 <log_directory> <threshold_size_MB>" 
     exit 1
 fi
 
 LOG_DIR=$1
-THRESHOLD=$2
+THRESHOLD_MB=$2
 BACKUP_DIR="$HOME/backup"
-N=70
+N=70 
 
-if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]]; then
-    echo "Error: Threshold must be a number between 0 and 100" 
+if ! [[ "$THRESHOLD_MB" =~ ^[0-9]+$ ]]; then
+    echo "Error: Threshold must be a number" 
     exit 1
 fi
 
-if [ "$THRESHOLD" -lt 0 ] || [ "$THRESHOLD" -gt 100 ]; then 
-    echo "Error: Threshold must be between 0 and 100" 
+if [ "$THRESHOLD_MB" -le 0 ]; then 
+    echo "Error: Threshold must be greater than 0" 
     exit 1
 fi
 
@@ -29,15 +29,14 @@ if [ ! -d "$BACKUP_DIR" ]; then
     mkdir -p "$BACKUP_DIR"
 fi
 
-USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+FOLDER_SIZE_MB=$(du -sm "$LOG_DIR" | cut -f1)
 
-THRESHOLD_N=$((THRESHOLD * N / 100))
+THRESHOLD_N=$((THRESHOLD_MB * N / 100))
+echo "Directory $LOG_DIR size: ${FOLDER_SIZE_MB}MB"
+echo "Threshold: ${THRESHOLD_MB}MB (action triggered at ${THRESHOLD_N}MB)"
 
-echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
-echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD_N}%)"
-
-if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
-    echo "Threshold $THRESHOLD% exceeded. Starting archive..."
+if [ $FOLDER_SIZE_MB -gt $THRESHOLD_N ]; then
+    echo "Threshold ${THRESHOLD_N}MB exceeded. Starting archive..."
 
     M=0
     FILES_TO_ARCHIVE=()
@@ -52,12 +51,12 @@ if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
     fi
 
     ARCHIVED_FILES=()
-    CURRENT_USAGE=$USAGE_PERCENT
+    CURRENT_SIZE=$FOLDER_SIZE_MB
     
     for file in "${FILES_TO_ARCHIVE[@]}"; do
-        CURRENT_USAGE=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+        CURRENT_SIZE=$(du -sm "$LOG_DIR" | cut -f1)
         
-        if [ $CURRENT_USAGE -le $THRESHOLD ]; then
+        if [ $CURRENT_SIZE -le $THRESHOLD_N ]; then
             break
         fi
         
@@ -81,7 +80,7 @@ if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
         echo "No files were archived."
     else
         echo "Archive completed successfully. Archived $M files."
-        echo "Current disk usage: $CURRENT_USAGE%"
+        echo "Current directory size: ${CURRENT_SIZE}MB"
     fi
 else
     echo "Threshold not exceeded. No action needed."
