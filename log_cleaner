@@ -7,6 +7,7 @@ fi
 LOG_DIR=$1
 THRESHOLD=$2
 BACKUP_DIR="$HOME/backup"
+N=100
 
 # Input validation
 if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]]; then
@@ -33,19 +34,18 @@ fi
 USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
 
 # Calculate trigger threshold (N% of user threshold)
-if [ $USAGE_PERCENT -ge $THRESHOLD ]; then 
-    N=$(( (USAGE_PERCENT * 100 / THRESHOLD) - 100 ))
-else
-    N=0
+THRESHOLD_N=$((THRESHOLD * N / 100))
+# Ensure minimum threshold of 1% if user threshold is positive
+if [ $THRESHOLD_N -eq 0 ] && [ $THRESHOLD -gt 0 ]; then
+    THRESHOLD_N=1
 fi
 
 echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
-echo "Threshold: $THRESHOLD%"
-echo "Folder exceeds Threshold by $N%"
+echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD_N}%)"
 
 # Check if usage exceeds threshold
-if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
-    echo "Threshold ${THRESHOLD}% exceeded. Starting archive..."
+if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
+    echo "Threshold ${THRESHOLD_N}% exceeded. Starting archive..."
 
     # Find all files sorted by modification time (oldest first)
     FILES_TO_ARCHIVE=()
@@ -58,7 +58,7 @@ if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
         exit 0
     fi
 
-    # Dynamic archiving - file by file with usage check
+    # NEW: Dynamic archiving - file by file with usage check
     M=0
     ARCHIVED_FILES=()
     CURRENT_USAGE=$USAGE_PERCENT
@@ -71,7 +71,7 @@ if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
         CURRENT_USAGE=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
         
         # Stop if usage dropped below threshold
-        if [ $CURRENT_USAGE -le $THRESHOLD ]; then
+        if [ $CURRENT_USAGE -le $THRESHOLD_N ]; then
             echo "Usage dropped to ${CURRENT_USAGE}%. Stopping archive."
             break
         fi
