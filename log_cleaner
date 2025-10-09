@@ -33,14 +33,15 @@ fi
 USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
 
 # Calculate trigger threshold (N% of user threshold)
-N=0
 if [ $USAGE_PERCENT -ge $THRESHOLD ]; then 
-    N=$((($USAGE_PERCENT * 100 / $THRESHOLD) - 100))
+    N=$(( (USAGE_PERCENT * 100 / THRESHOLD) - 100 ))
+else
+    N=0
 fi
 
 echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
-echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD}%)"
-echo "Folder exceeds Threshold by $N %"
+echo "Threshold: $THRESHOLD%"
+echo "Folder exceeds Threshold by $N%"
 
 # Check if usage exceeds threshold
 if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
