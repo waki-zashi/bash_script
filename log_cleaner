@@ -7,8 +7,8 @@ fi
 LOG_DIR=$1
 THRESHOLD=$2
 BACKUP_DIR="$HOME/backup"
-N=70
 
+# Input validation
 if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]]; then
     echo "Error: Threshold must be a number between 0 and 100" 
     exit 1
@@ -29,22 +29,25 @@ if [ ! -d "$BACKUP_DIR" ]; then
     mkdir -p "$BACKUP_DIR"
 fi
 
+# Get current disk usage percentage
 USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
 
-THRESHOLD_N=$((THRESHOLD * N / 100))
-if [ $THRESHOLD_N -eq 0 ] && [ $THRESHOLD -gt 0 ]; then
-    THRESHOLD_N=1
+# Calculate trigger threshold (N% of user threshold)
+N=0
+if [ $USAGE_PERCENT -ge $THRESHOLD ]; then 
+    N=$((($USAGE_PERCENT * 100 / $THRESHOLD) - 100))
 fi
 
 echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
-echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD_N}%)"
+echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD}%)"
+echo "Folder exceeds Threshold by $N %"
 
-if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
-    echo "Threshold $THRESHOLD% exceeded. Starting archive..."
+# Check if usage exceeds threshold
+if [ $USAGE_PERCENT -gt $THRESHOLD ]; then
+    echo "Threshold ${THRESHOLD}% exceeded. Starting archive..."
 
-    M=0
+    # Find all files sorted by modification time (oldest first)
     FILES_TO_ARCHIVE=()
-    
     while IFS= read -r -d '' file; do
         FILES_TO_ARCHIVE+=("$file")
     done < <(find "$LOG_DIR" -type f -printf "%T@ %p\0" | sort -zn | cut -zd' ' -f2-)
@@ -54,28 +57,41 @@ if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
         exit 0
     fi
 
+    # Dynamic archiving - file by file with usage check
+    M=0
     ARCHIVED_FILES=()
     CURRENT_USAGE=$USAGE_PERCENT
     
+    # Create main archive name
+    ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+    
     for file in "${FILES_TO_ARCHIVE[@]}"; do
+        # Check current disk usage
         CURRENT_USAGE=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
         
-        if [ $CURRENT_USAGE -le $THRESHOLD_N ]; then
+        # Stop if usage dropped below threshold
+        if [ $CURRENT_USAGE -le $THRESHOLD ]; then
+            echo "Usage dropped to ${CURRENT_USAGE}%. Stopping archive."
             break
         fi
         
-        ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
-        echo "Archiving: $file"
-
-        (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${FILES_TO_ARCHIVE[@]#$LOG_DIR/}")
+        # Archive single file (append to archive)
+        if [ $M -eq 0 ]; then
+            # Create new archive for first file
+            (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${file#$LOG_DIR/}")
+        else
+            # Append to existing archive
+            (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" --append -- "${file#$LOG_DIR/}")
+        fi
         
         if [ $? -eq 0 ]; then
-            ARCHIVED_FILES+=("$file")
+            # Remove archived file
             rm -f "$file"
+            ARCHIVED_FILES+=("$file")
             M=$((M + 1))
-            echo "Successfully archived $file"
+            echo "Archived: $file (Usage: ${CURRENT_USAGE}%)"
         else
-            echo "Failed to archive $file"
+            echo "Failed to archive: $file"
             continue
         fi
     done
@@ -83,9 +99,12 @@ if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
     if [ ${#ARCHIVED_FILES[@]} -eq 0 ]; then
         echo "No files were archived."
     else
+        # Get final disk usage
+        CURRENT_USAGE=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
         echo "Archive completed successfully. Archived $M files."
         echo "Current disk usage: $CURRENT_USAGE%"
     fi
+
 else
     echo "Threshold not exceeded. No action needed."
 fi
