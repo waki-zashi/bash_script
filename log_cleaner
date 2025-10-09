@@ -64,10 +64,10 @@ if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
             break
         fi
         
-        ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S)_$M.tar.gz"
+        ARCHIVE_NAME="$BACKUP_DIR/Log_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
         echo "Archiving: $file"
-        
-        (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${file#$LOG_DIR/}")
+
+        (cd "$LOG_DIR" && tar -czf "$ARCHIVE_NAME" -- "${FILES_TO_ARCHIVE[@]#$LOG_DIR/}")
         
         if [ $? -eq 0 ]; then
             ARCHIVED_FILES+=("$file")
