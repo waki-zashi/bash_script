@@ -30,7 +30,15 @@ done
 echo "Test 2: Threshold 1% (archiving)"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Backup consists of:"
-ls -lh "$BACKUP_DIR"
+if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
+    ls -lh "$BACKUP_DIR"/*.tar.gz
+    echo "Archive contents:"
+    tar -tzf "$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)" 2>/dev/null || echo "Cannot list contents"
+else
+    echo "No backup files found!"
+    echo "DEBUG: Backup dir exists: $(test -d "$BACKUP_DIR" && echo "YES" || echo "NO")"
+    echo "DEBUG: Files in backup: $(ls -la "$BACKUP_DIR" 2>/dev/null | wc -l)"
+fi
 
 # Test 3: Empty directory handling
 prepare_logs
@@ -46,9 +54,14 @@ for i in {1..3}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=50 &> /dev/null
 done
 echo "Test 4: backup folder does not exist (creating)"
+rm -rf "$BACKUP_DIR"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Backup: consists of:"
-ls -lh "$BACKUP_DIR"
+if [ -d "$BACKUP_DIR" ]; then
+    ls -lh "$BACKUP_DIR" || echo "Backup directory is empty"
+else
+    echo "ERROR: Backup directory was not created!"
+fi
 
 # Test 5: Verify that backup files are actually created
 prepare_logs
@@ -60,8 +73,11 @@ bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
     echo "PASS: Backup file created successfully"
     ls -lh "$BACKUP_DIR"/*.tar.gz
+    echo "Archive contents:"
+    tar -tzf "$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)" 2>/dev/null || echo "Cannot list contents"
 else
     echo "FAIL: No backup file found"
+    echo "DEBUG: Backup dir exists: $(test -d "$BACKUP_DIR" && echo "YES" || echo "NO")"
 fi
 
 # Test 6: Check archive contents and file count
@@ -76,8 +92,11 @@ archive_file=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
 if [ -n "$archive_file" ]; then
     file_count=$(tar -tzf "$archive_file" 2>/dev/null | wc -l)
     echo "PASS: Archive contains $file_count files"
+    echo "Archive contents:"
+    tar -tzf "$archive_file" 2>/dev/null || echo "Cannot list contents"
 else
     echo "FAIL: No archive to check"
+    echo "DEBUG: Backup dir contents: $(ls -la "$BACKUP_DIR" 2>/dev/null || echo "empty/missing")"
 fi
 
 # Test 7: Low threshold test with small files
@@ -89,10 +108,15 @@ echo "Test 7: Very low threshold (1%)"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Remaining files: $(find "$TEST_LOG_DIR" -type f | wc -l)"
 echo "Backup files: $(find "$BACKUP_DIR" -type f | wc -l)"
+if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
+    echo "Archive contents:"
+    tar -tzf "$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)" 2>/dev/null || echo "Cannot list contents"
+fi
 
 # Test 8: Verify archiving order (oldest files first) - EXTENDED VERSION
 prepare_logs
 echo "Test 8: Archive order (oldest first)"
+
 
 for i in {1..8}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/file_$(printf "%02d" $i).log" bs=1M count=5 &> /dev/null
@@ -132,6 +156,8 @@ if [ ${#archive_files[@]} -gt 0 ]; then
     echo "Total files archived: $archived_count"
 else
     echo "No backup archives found"
+    echo "DEBUG: Backup dir exists: $(test -d "$BACKUP_DIR" && echo "YES" || echo "NO")"
+    echo "DEBUG: Files in backup: $(ls -la "$BACKUP_DIR" 2>/dev/null | wc -l)"
 fi
 
 echo "Files remaining in log directory: $(find "$TEST_LOG_DIR" -type f | wc -l)"
