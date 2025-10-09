@@ -32,6 +32,9 @@ fi
 USAGE_PERCENT=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
 
 THRESHOLD_N=$((THRESHOLD * N / 100))
+if [ $THRESHOLD_N -eq 0 ] && [ $THRESHOLD -gt 0 ]; then
+    THRESHOLD_N=1
+fi
 
 echo "Directory $LOG_DIR uses $USAGE_PERCENT% of filesystem space"
 echo "Threshold: $THRESHOLD% (action triggered at ${THRESHOLD_N}%)"
