@@ -90,17 +90,52 @@ bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 echo "Remaining files: $(find "$TEST_LOG_DIR" -type f | wc -l)"
 echo "Backup files: $(find "$BACKUP_DIR" -type f | wc -l)"
 
-# Test 8: Verify archiving order (oldest files first)
+# Test 8: Verify archiving order (oldest files first) - EXTENDED VERSION
 prepare_logs
-dd if=/dev/zero of="$TEST_LOG_DIR/oldest.log" bs=1M count=10 &> /dev/null
-sleep 1
-dd if=/dev/zero of="$TEST_LOG_DIR/middle.log" bs=1M count=10 &> /dev/null  
-sleep 1
-dd if=/dev/zero of="$TEST_LOG_DIR/newest.log" bs=1M count=10 &> /dev/null
-echo "Test 8: Archive order (oldest first) ==="
-echo "Files before: $(ls -1t "$TEST_LOG_DIR")"
+echo "Test 8: Archive order (oldest first)"
+
+for i in {1..8}; do
+    dd if=/dev/zero of="$TEST_LOG_DIR/file_$(printf "%02d" $i).log" bs=1M count=5 &> /dev/null
+    echo "Created file_$(printf "%02d" $i).log"
+    sleep 1
+done
+
+echo "Files before archiving (newest first):"
+ls -1t "$TEST_LOG_DIR"
+
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
-echo "Files after: $(find "$TEST_LOG_DIR" -type f -printf '%f\n' 2>/dev/null || echo 'none')"
+
+echo "Files remaining after archiving:"
+find "$TEST_LOG_DIR" -type f -printf '%f\n' 2>/dev/null | sort || echo "none"
+
+echo "Backup verification:"
+archive_files=($(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null))
+if [ ${#archive_files[@]} -gt 0 ]; then
+    for archive in "${archive_files[@]}"; do
+        echo "Archive: $(basename "$archive")"
+        echo "Contents (archived files in order):"
+        tar -tzf "$archive" 2>/dev/null | grep -v '/$' | sort
+        echo "---"
+    done
+    
+    latest_archive="${archive_files[0]}"
+    archived_files_list=$(tar -tzf "$latest_archive" 2>/dev/null | grep -v '/$')
+    
+    echo "Archiving order analysis:"
+    if echo "$archived_files_list" | head -1 | grep -q "file_01.log"; then
+        echo "PASS: Oldest file (file_01.log) was archived first"
+    else
+        echo "FAIL: Oldest file not archived first"
+    fi
+    
+    archived_count=$(echo "$archived_files_list" | wc -l)
+    echo "Total files archived: $archived_count"
+else
+    echo "No backup archives found"
+fi
+
+echo "Files remaining in log directory: $(find "$TEST_LOG_DIR" -type f | wc -l)"
+echo "---"
 
 # Test 9: Input validation and error handling
 prepare_logs
