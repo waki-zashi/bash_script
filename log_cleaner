@@ -57,7 +57,7 @@ if [ $USAGE_PERCENT -gt $THRESHOLD_N ]; then
     for file in "${FILES_TO_ARCHIVE[@]}"; do
         CURRENT_USAGE=$(df "$LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
         
-        if [ $CURRENT_USAGE -le $THRESHOLD ]; then
+        if [ $CURRENT_USAGE -le $THRESHOLD_N ]; then
             break
         fi
         
