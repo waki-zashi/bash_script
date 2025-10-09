@@ -11,181 +11,200 @@ prepare_logs() {
     mkdir -p "$TEST_LOG_DIR" "$BACKUP_DIR"
 }
 
+print_header() {
+    echo "================================================================"
+    echo "TEST: $1"
+    echo "================================================================"
+}
+
+print_success() {
+    echo "PASS: $1"
+}
+
+print_failure() {
+    echo "FAIL: $1"
+}
+
+print_info() {
+    echo "INFO: $1"
+}
+
+print_file_list() {
+    echo "FILES: $1"
+}
+
 # Test 1: Small files below threshold - should not archive
+print_header "1: Small files below threshold (no archiving expected)"
 prepare_logs
 for i in {1..5}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=10 &> /dev/null
 done
-echo "Test 1: Threshold 99% (no archiving) ==="
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 99
-echo "Backup consists of:"
-ls -lh "$BACKUP_DIR" || echo "Folder is empty"
+if [ $(find "$BACKUP_DIR" -name "*.tar.gz" | wc -l) -eq 0 ]; then
+    print_success "No archives created - threshold not exceeded"
+else
+    print_failure "Unexpected archives found"
+fi
 
 # Test 2: Multiple small files - testing file sorting and selection
+print_header "2: Multiple small files (archiving expected)"
 prepare_logs
 for i in {1..10}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=$((i*5)) &> /dev/null
-    sleep 1
+    sleep 0.1
 done
-echo "Test 2: Threshold 1% (archiving)"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
-echo "Backup consists of:"
 if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
-    ls -lh "$BACKUP_DIR"/*.tar.gz
-    echo "Archive contents:"
-    tar -tzf "$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)" 2>/dev/null || echo "Cannot list contents"
+    print_success "Archive created successfully"
+    archive_file=$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)
+    file_count=$(tar -tzf "$archive_file" 2>/dev/null | wc -l)
+    print_info "Archive contains $file_count files"
 else
-    echo "No backup files found!"
-    echo "DEBUG: Backup dir exists: $(test -d "$BACKUP_DIR" && echo "YES" || echo "NO")"
-    echo "DEBUG: Files in backup: $(ls -la "$BACKUP_DIR" 2>/dev/null | wc -l)"
+    print_failure "No backup archive found"
 fi
 
 # Test 3: Empty directory handling
+print_header "3: Empty directory handling"
 prepare_logs
-echo "Test 3: Log folder is empty (no archiving)"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
-echo "Backup consists of:"
-ls -lh "$BACKUP_DIR" || echo "Folder is empty"
+if [ $(find "$BACKUP_DIR" -name "*.tar.gz" | wc -l) -eq 0 ]; then
+    print_success "Correctly handled empty directory"
+else
+    print_failure "Unexpected archive created for empty directory"
+fi
 
-# Test 4: Backup directory creation and basic archiving
+# Test 4: Backup directory creation
+print_header "4: Backup directory creation"
 prepare_logs
 rm -rf "$BACKUP_DIR"
 for i in {1..3}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/log_$i.txt" bs=1K count=50 &> /dev/null
 done
-echo "Test 4: backup folder does not exist (creating)"
-rm -rf "$BACKUP_DIR"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
-echo "Backup: consists of:"
 if [ -d "$BACKUP_DIR" ]; then
-    ls -lh "$BACKUP_DIR" || echo "Backup directory is empty"
+    print_success "Backup directory created automatically"
+    archive_count=$(find "$BACKUP_DIR" -name "*.tar.gz" | wc -l)
+    print_info "Found $archive_count archive(s)"
 else
-    echo "ERROR: Backup directory was not created!"
+    print_failure "Backup directory was not created"
 fi
 
-# Test 5: Verify that backup files are actually created
+# Test 5: Large file archiving
+print_header "5: Large file archiving verification"
 prepare_logs
 for i in {1..5}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/file_$i.log" bs=1M count=20 &> /dev/null
 done
-echo "Test 5: Verify backup file creation"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
-    echo "PASS: Backup file created successfully"
-    ls -lh "$BACKUP_DIR"/*.tar.gz
-    echo "Archive contents:"
-    tar -tzf "$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)" 2>/dev/null || echo "Cannot list contents"
+    print_success "Large files archived successfully"
+    archive_size=$(ls -lh "$BACKUP_DIR"/*.tar.gz | head -1 | awk '{print $5}')
+    print_info "Archive size: $archive_size"
 else
-    echo "FAIL: No backup file found"
-    echo "DEBUG: Backup dir exists: $(test -d "$BACKUP_DIR" && echo "YES" || echo "NO")"
+    print_failure "Failed to archive large files"
 fi
 
-# Test 6: Check archive contents and file count
+# Test 6: Archive content verification
+print_header "6: Archive content verification"
 prepare_logs
 for i in {1..8}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/logfile_$i.log" bs=1M count=15 &> /dev/null
     sleep 0.1
 done
-echo "Test 6: Verify archive content"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 archive_file=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
 if [ -n "$archive_file" ]; then
     file_count=$(tar -tzf "$archive_file" 2>/dev/null | wc -l)
-    echo "PASS: Archive contains $file_count files"
-    echo "Archive contents:"
-    tar -tzf "$archive_file" 2>/dev/null || echo "Cannot list contents"
+    if [ $file_count -eq 8 ]; then
+        print_success "All 8 files archived correctly"
+    else
+        print_failure "Expected 8 files, found $file_count"
+    fi
 else
-    echo "FAIL: No archive to check"
-    echo "DEBUG: Backup dir contents: $(ls -la "$BACKUP_DIR" 2>/dev/null || echo "empty/missing")"
+    print_failure "No archive to verify"
 fi
 
-# Test 7: Low threshold test with small files
+
+# Test 7: Low threshold behavior
+print_header "7: Low threshold behavior"
 prepare_logs
 for i in {1..3}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/small_$i.log" bs=1M count=2 &> /dev/null
 done
-echo "Test 7: Very low threshold (1%)"
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
-echo "Remaining files: $(find "$TEST_LOG_DIR" -type f | wc -l)"
-echo "Backup files: $(find "$BACKUP_DIR" -type f | wc -l)"
-if ls "$BACKUP_DIR"/*.tar.gz > /dev/null 2>&1; then
-    echo "Archive contents:"
-    tar -tzf "$(ls -t "$BACKUP_DIR"/*.tar.gz | head -1)" 2>/dev/null || echo "Cannot list contents"
+remaining_files=$(find "$TEST_LOG_DIR" -type f | wc -l)
+backup_files=$(find "$BACKUP_DIR" -name "*.tar.gz" | wc -l)
+if [ $remaining_files -eq 0 ] && [ $backup_files -gt 0 ]; then
+    print_success "All files archived with low threshold"
+else
+    print_failure "Archiving incomplete: $remaining_files files remaining, $backup_files backups"
 fi
 
-# Test 8: Verify archiving order (oldest files first) - EXTENDED VERSION
+# Test 8: Archiving order verification
+print_header "8: Archiving order (oldest first)"
 prepare_logs
-echo "Test 8: Archive order (oldest first)"
-
-
 for i in {1..8}; do
     dd if=/dev/zero of="$TEST_LOG_DIR/file_$(printf "%02d" $i).log" bs=1M count=5 &> /dev/null
-    echo "Created file_$(printf "%02d" $i).log"
-    sleep 1
+    sleep 0.5
 done
 
-echo "Files before archiving (newest first):"
+print_file_list "Files before archiving (newest first):"
 ls -1t "$TEST_LOG_DIR"
 
 bash ./log_cleaner.sh "$TEST_LOG_DIR" 1
 
-echo "Files remaining after archiving:"
-find "$TEST_LOG_DIR" -type f -printf '%f\n' 2>/dev/null | sort || echo "none"
-
-echo "Backup verification:"
 archive_files=($(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null))
 if [ ${#archive_files[@]} -gt 0 ]; then
-    for archive in "${archive_files[@]}"; do
-        echo "Archive: $(basename "$archive")"
-        echo "Contents (archived files in order):"
-        tar -tzf "$archive" 2>/dev/null | grep -v '/$' | sort
-        echo "---"
-    done
-    
     latest_archive="${archive_files[0]}"
     archived_files_list=$(tar -tzf "$latest_archive" 2>/dev/null | grep -v '/$')
     
-    echo "Archiving order analysis:"
-    if echo "$archived_files_list" | head -1 | grep -q "file_01.log"; then
-        echo "PASS: Oldest file (file_01.log) was archived first"
+    first_file=$(echo "$archived_files_list" | head -1)
+    if [ "$first_file" = "file_01.log" ]; then
+        print_success "Oldest file (file_01.log) archived first"
     else
-        echo "FAIL: Oldest file not archived first"
+        print_failure "Archiving order incorrect. First file: $first_file"
     fi
     
     archived_count=$(echo "$archived_files_list" | wc -l)
-    echo "Total files archived: $archived_count"
+    print_info "Total files archived: $archived_count"
+    
+    echo ""
+    print_file_list "Archived files in order:"
+    echo "$archived_files_list"
 else
-    echo "No backup archives found"
-    echo "DEBUG: Backup dir exists: $(test -d "$BACKUP_DIR" && echo "YES" || echo "NO")"
-    echo "DEBUG: Files in backup: $(ls -la "$BACKUP_DIR" 2>/dev/null | wc -l)"
+    print_failure "No archives found for order verification"
 fi
 
-echo "Files remaining in log directory: $(find "$TEST_LOG_DIR" -type f | wc -l)"
-echo "---"
-
-# Test 9: Input validation and error handling
+# Test 9: Input validation
+print_header "9: Input validation"
 prepare_logs
-echo "Test 9: Check up entering arguments"
 
-if bash ./log_cleaner.sh "$TEST_LOG_DIR" "abc"; then
-    echo "You entered string instead of number"
-    exit 1
+# Test invalid string input
+if bash ./log_cleaner.sh "$TEST_LOG_DIR" "abc" 2>/dev/null; then
+    print_failure "Accepted string instead of number"
 else
-    echo "Script correctly rejected string instead of number"
+    print_success "Rejected string input"
 fi
 
-if bash ./log_cleaner.sh "$TEST_LOG_DIR" -5; then
-    echo "You entered negative number"
-    exit 1
+# Test negative number
+if bash ./log_cleaner.sh "$TEST_LOG_DIR" -5 2>/dev/null; then
+    print_failure "Accepted negative number"
 else
-    echo "Script correctly rejected negative number"
+    print_success "Rejected negative number"
 fi
 
-if bash ./log_cleaner.sh "$TEST_LOG_DIR" 150; then
-    echo "You entered number greater than 100"
-    exit 1
+# Test number > 100
+if bash ./log_cleaner.sh "$TEST_LOG_DIR" 150 2>/dev/null; then
+    print_failure "Accepted number > 100"
 else
-    echo "Script correctly rejected number greater than 100"
+    print_success "Rejected number > 100"
 fi
 
-echo "All tests completed"
+# Final summary
+echo ""
+echo "================================================================"
+echo "TEST SUMMARY COMPLETED"
+echo "================================================================"
+echo "All tests finished execution"
+echo "Check results above for any failures"
+echo "================================================================"
